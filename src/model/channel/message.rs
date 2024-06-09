@@ -5,15 +5,16 @@ use std::fmt::Display;
 #[cfg(all(feature = "cache", feature = "model"))]
 use std::fmt::Write;
 
+use serde::de::Error as DeError;
+use serde_cow::CowStr;
+
 #[cfg(all(feature = "model", feature = "utils"))]
 use crate::builder::{Builder, CreateAllowedMentions, CreateMessage, EditMessage};
 #[cfg(all(feature = "cache", feature = "model"))]
 use crate::cache::{Cache, GuildRef};
 #[cfg(feature = "collector")]
 use crate::collector::{
-    ComponentInteractionCollector,
-    ModalInteractionCollector,
-    ReactionCollector,
+    ComponentInteractionCollector, ModalInteractionCollector, ReactionCollector,
 };
 #[cfg(feature = "model")]
 use crate::constants;
@@ -947,7 +948,36 @@ pub struct MessageReaction {
     #[serde(rename = "emoji")]
     pub reaction_type: ReactionType,
     // The colours used for super reactions.
+    #[serde(rename = "burst_colors", deserialize_with = "discord_colours")]
     pub burst_colours: Vec<Colour>,
+}
+
+fn discord_colours<'de, D>(deserializer: D) -> Result<Vec<Colour>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let vec_str: Vec<CowStr<'_>> = Deserialize::deserialize(deserializer)?;
+
+    let colours: Result<Vec<_>, _> = vec_str
+        .iter()
+        .map(|s| {
+            let s = s.0.strip_prefix('#').ok_or_else(|| DeError::custom("Invalid colour data"))?;
+
+            if s.len() != 6 {
+                return Err(DeError::custom("Invalid colour data length"));
+            }
+
+            match u32::from_str_radix(s, 16) {
+                Ok(c) => Ok(Colour::new(c)),
+                Err(_) => Err(DeError::custom("Invalid colour data")),
+            }
+        })
+        .collect();
+
+    match colours {
+        Ok(colours) => Ok(colours),
+        Err(err) => Err(err),
+    }
 }
 
 /// A representation of reaction count details.
